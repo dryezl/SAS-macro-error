@@ -1,0 +1,1936 @@
+ 
+ 1          OPTIONS NONOTES NOSTIMER NOSOURCE NOSYNTAXCHECK;
+ 68         
+ 69         
+ 70         /**************************************************************************************************************/
+ 71         /* This SAS program illustrates the use of the mixtran and indivint macros.                                   */
+ 72         /* The following files are also required to run this example:                                                 */
+ 73         /*   mixtran_macro_v1.1.sas        (i.e. the macro that fits the nonlinear mixed effects model),              */
+ 74         /*   indivint_macro_v1.1.sas       (i.e. the individual intake macro),                                        */
+ 75         /*   data.example.males12plus.xpt  (i.e. the data file for this example).                                     */
+ 76         /* The path must be modified in the following lines:                                                          */
+ 77         
+ 78         *** Include the MIXTRAN and INDIVINT macros ***;
+ 79         %include "/home/u56669290/nci/mixtran_macro_v2.1.sas";
+ 2211       %include "/home/u56669290/nci/indivint_macro_v2.1.sas";
+ 3205       
+ 3206       *** Input data file ***;
+ 3207       filename tranfile "/home/u56669290/data/nci/data.example.males12plus.xpt";
+ 3208       
+ 3209       *** Library for data sets output by the MIXTRAN macro ***;
+ 3210       libname mylib "/home/u56669290/out/";
+ NOTE: 已成功分配逻辑库引用名“MYLIB”，如下所示: 
+        引擎:        V9 
+        物理名: /home/u56669290/out
+ 3211       
+ 3212       /**************************************************************************************************************/
+ 3213       
+ 3214       
+ 3215       title1 "Example:  Total Mercury and Individual Usual Intake of Fish, NHANES 2003-2004, Males, Ages 12+";
+ 3216       title2 "NLMIXED Cov:  Race, Educ, Age, I(FFQ=0), BoxCox(FFQ)     Linear Reg Cov:  E( BoxCox(Ti,lamT) | Xi )";
+ 3217       
+ 3218       
+ 3219       ************************************;
+ 3220       *** Covariates for nlmixed model ***;
+ 3221       ************************************;
+ 3222       
+ 3223       %let covnlmixmod = race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean;
+ 3224       
+ 3225       
+ 3226       ***********************;
+ 3227       *** Weight variable ***;
+ 3228       ***********************;
+ 3229       
+ 3230       %let weight_var = rwthg;
+ 3231       
+ 3232       
+ 3233       
+ 3234       *********************************************************************************************************************;
+ 3235       *** Box-Cox parameter for transformation of individual usual intake.  Comparison usual intake values:  T0 and T1. ***;
+ 3236       *********************************************************************************************************************;
+ 3237       
+ 3238       %let boxcox_t_param = 0.11;
+ 3239       
+ 3240       %let t0 = 0.1;
+ 3241       %let t1 = 1;
+ 3242       
+ 3243       
+ 3244       
+ 3245       *********************************************;
+ 3246       *** Import the data file for this example ***;
+ 3247       *********************************************;
+ 3248       
+ 3249       proc cimport data=examplemales12plus infile=tranfile ISFILEUTF8=True;
+ 3250       run;
+ 
+ NOTE: 该传输文件是由未记录其编码的 SAS 早期版本创建的。
+       ISFILEUTF8 CIMPORT 选项设置为 T（表示 TRUE），
+       因此该程序基于使用 UTF8 编码创建传输文件的假设继续运行。若该选项未正确设置，
+       则会导致数据无效或转码出错。
+ NOTE: PROC“CIMPORT”开始创建/更新数据集 WORK.examplemales12plus
+ NOTE: 数据集包含 31 个变量和 2100 个观测。 
+       逻辑记录长度为 248
+ 
+ NOTE: “PROCEDURE CIMPORT”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.01 秒
+       内存              1211.62k
+       OS 内存           21156.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        18  Switch Count  1
+       页错误数                       0
+       页回收数                     408
+       页交换数                        0
+       主动上下文切换数        9
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1296
+       
+ 
+ 3251       
+ 3252       
+ 3253       
+ 3254       *********************************************;
+ 3255       
+ 3256       data datamrec(keep = subjectid replicvar wave seqn numdays ridageyr race1 race3 dmdeduc1 dmdeduc3
+ 3257                            ffqeqzero bcffq0mean R repeat)
+ 3258            subj1rec(keep = subjectid replicvar wave seqn numdays ridageyr race1 race3 dmdeduc1 dmdeduc3
+ 3259                            ffqeqzero bcffq0mean R1 R2 logtotmerc)
+ 3260            ;
+ 3261         set examplemales12plus;
+ 3262         by subjectid;
+ 3263       
+ 3264         ****************************************;
+ 3265         *** Replicate (i.e. weight) variable ***;
+ 3266         ****************************************;
+ 3267       
+ 3268         replicvar = &weight_var;
+ 3269       
+ 3270         ********************************************;
+ 3271         *** Output record for 1st 24-hour recall ***;
+ 3272         ********************************************;
+ 3273       
+ 3274         if R1 >= 0 then do;
+ 3275       
+ 3276           repeat = 1;
+ 3277       
+ 3278           R = R1;
+ 3279       
+ 3280           output datamrec;
+ 3281       
+ 3282         end;
+ 3283       
+ 3284         ********************************************;
+ 3285         *** Output record for 2nd 24-hour recall ***;
+ 3286         ********************************************;
+ 3287       
+ 3288         if R2 >= 0 then do;
+ 3289       
+ 3290           repeat = 2;
+ 3291       
+ 3292           R = R2;
+ 3293       
+ 3294           output datamrec;
+ 3295       
+ 3296         end;
+ 3297       
+ 3298         ****************************************;
+ 3299         *** Output 1 record for each subject ***;
+ 3300         ****************************************;
+ 3301       
+ 3302         output subj1rec;
+ 3303       
+ 3304       run;
+ 
+ NOTE: 从数据集 WORK.EXAMPLEMALES12PLUS. 读取了 2100 个观测
+ NOTE: 数据集 WORK.DATAMREC 有 4094 个观测和 14 个变量。
+ NOTE: 数据集 WORK.SUBJ1REC 有 2100 个观测和 15 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              2432.34k
+       OS 内存           22572.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        19  Switch Count  2
+       页错误数                       0
+       页回收数                     431
+       页交换数                        0
+       主动上下文切换数        13
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1552
+       
+ 
+ 3305       
+ 3306       
+ 3307       
+ 3308       ************************************************************;
+ 3309       *** Calculate the smallest positive 24-hour recall value ***;
+ 3310       ************************************************************;
+ 3311       
+ 3312       proc univariate data=datamrec noprint;
+ 3313         where R>0;
+ 3314         var R;
+ 3315         output out=outmin_amt min=min_amt;
+ 3316       run;
+ 
+ NOTE: 数据集 WORK.OUTMIN_AMT 有 1 个观测和 1 个变量。
+ NOTE: “PROCEDURE UNIVARIATE”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1557.21k
+       OS 内存           22444.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        20  Switch Count  4
+       页错误数                       0
+       页回收数                     411
+       页交换数                        0
+       主动上下文切换数        15
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           280
+       
+ 
+ 3317       
+ 3318       ************************************************************;
+ 3319       
+ 3320       
+ 3321       proc print data=datamrec(obs=20);
+ 3322         var subjectid replicvar repeat R &covnlmixmod;
+ 3323         title3 "Some Observations from the Data Set Used to Fit the Starting Value Models and the Two-Part Nonlinear Mixed
+ 3323     ! Model";
+ 3324       run;
+ 
+ NOTE: 从数据集 WORK.DATAMREC. 读取了 20 个观测
+ NOTE: “PROCEDURE PRINT”所用时间（总处理时间）:
+       实际时间          0.04 秒
+       用户 CPU 时间     0.05 秒
+       系统 CPU 时间     0.01 秒
+       内存              1877.15k
+       OS 内存           22692.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        21  Switch Count  1
+       页错误数                       0
+       页回收数                     514
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           16
+       
+ 
+ 3325       title3;
+ 3326       
+ 3327       
+ 3328       *****************************************************************************;
+ 3329       ***                Call macro to fit nonlinear mixed model                ***;
+ 3330       ***           (For details, see documentation for MIXTRAN macro)          ***;
+ 3331       *****************************************************************************;
+ 3332       option mlogic mprint symbolgen;
+ 3333       %mixtran (data=datamrec, response=R, foodtype=fish, subject=subjectid,
+ MLOGIC(MIXTRAN): 准备开始执行。
+ 3334                 repeat=repeat, covars_prob=&covnlmixmod, covars_amt=&covnlmixmod,
+ SYMBOLGEN:  宏变量 COVNLMIXMOD 解析为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ SYMBOLGEN:  宏变量 COVNLMIXMOD 解析为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ 3335                 outlib=mylib, modeltype=corr, lambda=, replicate_var=replicvar,
+ 3336                 seq=, weekend=, vargroup=, numvargroups=,
+ 3337                 subgroup=, start_val1=, start_val2=, start_val3=,
+ 3338                 vcontrol=, nloptions=qmax=61, titles=2, printlevel=2);
+ MLOGIC(MIXTRAN): 参数 DATA 的值为 datamrec
+ MLOGIC(MIXTRAN): 参数 RESPONSE 的值为 R
+ MLOGIC(MIXTRAN): 参数 FOODTYPE 的值为 fish
+ MLOGIC(MIXTRAN): 参数 SUBJECT 的值为 subjectid
+ MLOGIC(MIXTRAN): 参数 REPEAT 的值为 repeat
+ MLOGIC(MIXTRAN): 参数 COVARS_PROB 的值为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ MLOGIC(MIXTRAN): 参数 COVARS_AMT 的值为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ MLOGIC(MIXTRAN): 参数 OUTLIB 的值为 mylib
+ MLOGIC(MIXTRAN): 参数 MODELTYPE 的值为 corr
+ MLOGIC(MIXTRAN): 参数 LAMBDA 的值为 
+ MLOGIC(MIXTRAN): 参数 REPLICATE_VAR 的值为 replicvar
+ MLOGIC(MIXTRAN): 参数 SEQ 的值为 
+ MLOGIC(MIXTRAN): 参数 WEEKEND 的值为 
+ MLOGIC(MIXTRAN): 参数 VARGROUP 的值为 
+ MLOGIC(MIXTRAN): 参数 NUMVARGROUPS 的值为 
+ MLOGIC(MIXTRAN): 参数 SUBGROUP 的值为 
+ MLOGIC(MIXTRAN): 参数 START_VAL1 的值为 
+ MLOGIC(MIXTRAN): 参数 START_VAL2 的值为 
+ MLOGIC(MIXTRAN): 参数 START_VAL3 的值为 
+ MLOGIC(MIXTRAN): 参数 VCONTROL 的值为 
+ MLOGIC(MIXTRAN): 参数 NLOPTIONS 的值为 qmax=61
+ MLOGIC(MIXTRAN): 参数 TITLES 的值为 2
+ MLOGIC(MIXTRAN): 参数 PRINTLEVEL 的值为 2
+ MPRINT(MIXTRAN):   ********************************************************;
+ MLOGIC(MIXTRAN): %LET（变量名为 VAR_U1START）
+ MPRINT(MIXTRAN):   *************************************************************************;
+ MPRINT(MIXTRAN):   ** setup ;
+ MPRINT(MIXTRAN):   *************************************************************************;
+ MLOGIC(MIXTRAN): %LET（变量名为 SUCCESS）
+ MLOGIC(MIXTRAN): %LET（变量名为 CONVFLAG）
+ MPRINT(MIXTRAN):   ** IMS Specific ;
+ MLOGIC(MIXTRAN): %LET（变量名为 FAILED）
+ MPRINT(MIXTRAN):   ** END OF IMS SPECIFIC;
+ MLOGIC(MIXTRAN): %LET（变量名为 MODELTYPE）
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 corr
+ MLOGIC(MIXTRAN): %LET（变量名为 NUMVGMINUS1）
+ SYMBOLGEN:  宏变量 NUMVARGROUPS 解析为 
+ SYMBOLGEN:  宏变量 NUMVARGROUPS 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &numvargroups =  为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 NUMVARGROUPS）
+ MLOGIC(MIXTRAN): %PUT ## in the MIXTRAN macro:
+ ## in the MIXTRAN macro:
+ MLOGIC(MIXTRAN): %PUT ## the response variable is &response
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ ## the response variable is R
+ MLOGIC(MIXTRAN): %PUT ## the data set being analysed is &data
+ SYMBOLGEN:  宏变量 DATA 解析为 datamrec
+ ## the data set being analysed is datamrec
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 %length(&vcontrol) >6 为 FALSE
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &vcontrol ne  为 FALSE
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &vcontrol =  为 TRUE
+ SYMBOLGEN:  宏变量 START_VAL1 解析为 
+ SYMBOLGEN:  宏变量 START_VAL2 解析为 
+ SYMBOLGEN:  宏变量 START_VAL3 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 (&start_val1 ne  or &start_val2 ne  or &start_val3 ne ) 为 FALSE
+ SYMBOLGEN:  宏变量 START_VAL1 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &start_val1  = 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 START_VAL1）
+ SYMBOLGEN:  宏变量 START_VAL2 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &start_val2  = 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 START_VAL2）
+ SYMBOLGEN:  宏变量 START_VAL3 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &start_val3= 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 START_VAL3）
+ MLOGIC(MIXTRAN): %LET（变量名为 PRINT_ON）
+ MLOGIC(MIXTRAN): %LET（变量名为 PRINT_OFF）
+ SYMBOLGEN:  宏变量 PRINTLEVEL 解析为 2
+ MLOGIC(MIXTRAN):  %IF 条件 &printlevel=2 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 PRINT_ON）
+ SYMBOLGEN:  宏变量 PRINT_OFF 解析为 ods exclude all ;
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MPRINT(MIXTRAN):   ods exclude all ;
+ MPRINT(MIXTRAN):   ;
+ MPRINT(MIXTRAN):   ** ods exclude all;
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MLOGIC(MIXTRAN):  %IF 条件 &replicate_var =  为 FALSE
+ MLOGIC(MIXTRAN): %LET（变量名为 FREQING）
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MLOGIC(MIXTRAN): %LET（变量名为 REPLICATE）
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MLOGIC(MIXTRAN): %PUT ## &replicate
+ SYMBOLGEN:  宏变量 REPLICATE 解析为 replicate replicvar
+ ## replicate replicvar
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MLOGIC(MIXTRAN):  %IF 条件 &titles =  为 FALSE
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&titles) gt 4 为 FALSE
+ MLOGIC(MIXTRAN): %PUT ## number of titles reserved is &titles
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ ## number of titles reserved is 2
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype= 为 FALSE
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype eq NOCORR 为 FALSE
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype eq AMOUNT 为 FALSE
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype eq CORR 为 TRUE
+ MLOGIC(MIXTRAN): %PUT ## Code for correlated model will be executed
+ ## Code for correlated model will be executed
+ SYMBOLGEN:  宏变量 LAMBDA 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &lambda eq  为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 LAMBDABOUNDS）
+ MLOGIC(MIXTRAN): %PUT ## lambdabounds is: &lambdabounds
+ SYMBOLGEN:  宏变量 LAMBDABOUNDS 解析为 bounds A_LAMBDA>0.01;
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## lambdabounds is: bounds A_LAMBDA>0.01;
+ SYMBOLGEN:  宏变量 SUBGROUP 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &subgroup ne  为 FALSE
+ SYMBOLGEN:  宏变量 NLOPTIONS 解析为 qmax=61
+ MLOGIC(MIXTRAN):  %IF 条件 &nloptions ne  为 TRUE
+ MLOGIC(MIXTRAN): %PUT ## options for NLMIXED are: &nloptions
+ SYMBOLGEN:  宏变量 NLOPTIONS 解析为 qmax=61
+ ## options for NLMIXED are: qmax=61
+ MPRINT(MIXTRAN):   ***** Probability covars *******;
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype ne AMOUNT 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 VARS_PROB）
+ SYMBOLGEN:  宏变量 COVARS_PROB 解析为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ SYMBOLGEN:  宏变量 WEEKEND 解析为 
+ SYMBOLGEN:  宏变量 SEQ 解析为 
+ MLOGIC(MIXTRAN): %PUT ## The Probability Covariates Are:
+ ## The Probability Covariates Are:
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ MLOGIC(MIXTRAN): %DO %UNTIL(%qscan(&vars_prob,&I, )=) 循环正准备开始。
+ SYMBOLGEN:  宏变量 I 解析为 1
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB1）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 1
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 1
+ SYMBOLGEN:  宏变量 VARB1 解析为 RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RACE1
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 1
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB2）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 2
+ SYMBOLGEN:  宏变量 VARB2 解析为 RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RACE3
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 2
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB3）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 3
+ SYMBOLGEN:  宏变量 VARB3 解析为 DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## DMDEDUC1
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 3
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB4）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 4
+ SYMBOLGEN:  宏变量 VARB4 解析为 DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## DMDEDUC3
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 4
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB5）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 5
+ SYMBOLGEN:  宏变量 VARB5 解析为 RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RIDAGEYR
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 5
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB6）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 6
+ SYMBOLGEN:  宏变量 VARB6 解析为 FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## FFQEQZERO
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 6
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_prob,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN): %LET（变量名为 VARB7）
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN): %PUT ## &&varb&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 7
+ SYMBOLGEN:  宏变量 VARB7 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## BCFFQ0MEAN
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 7
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 8
+ MLOGIC(MIXTRAN):  %DO %UNTIL() 条件为 TRUE；循环将不再迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 CNT_PROB）
+ SYMBOLGEN:  宏变量 I 解析为 8
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ MLOGIC(MIXTRAN):  %IF 条件 &vars_prob= 为 FALSE
+ MPRINT(MIXTRAN):   ******** Amount covars *********;
+ MLOGIC(MIXTRAN): %LET（变量名为 VARS_AMT）
+ SYMBOLGEN:  宏变量 COVARS_AMT 解析为 race1 race3 dmdeduc1 dmdeduc3 ridageyr ffqeqzero bcffq0mean
+ SYMBOLGEN:  宏变量 WEEKEND 解析为 
+ SYMBOLGEN:  宏变量 SEQ 解析为 
+ MLOGIC(MIXTRAN): %PUT ## The Amount Covariates Are:
+ ## The Amount Covariates Are:
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ MLOGIC(MIXTRAN): %DO %UNTIL(%qscan(&vars_amt,&I, )=) 循环正准备开始。
+ SYMBOLGEN:  宏变量 I 解析为 1
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL1）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 1
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 1
+ SYMBOLGEN:  宏变量 VARL1 解析为 RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RACE1
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 1
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL2）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 2
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 2
+ SYMBOLGEN:  宏变量 VARL2 解析为 RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RACE3
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 2
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL3）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 3
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 3
+ SYMBOLGEN:  宏变量 VARL3 解析为 DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## DMDEDUC1
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 3
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL4）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 4
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 4
+ SYMBOLGEN:  宏变量 VARL4 解析为 DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## DMDEDUC3
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 4
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL5）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 5
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 5
+ SYMBOLGEN:  宏变量 VARL5 解析为 RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## RIDAGEYR
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 5
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL6）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 6
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 6
+ SYMBOLGEN:  宏变量 VARL6 解析为 FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## FFQEQZERO
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 6
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(%qscan(&vars_amt,&I, )=) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN): %LET（变量名为 VARL7）
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 7
+ MLOGIC(MIXTRAN): %PUT ## &&varl&i
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 I 解析为 7
+ SYMBOLGEN:  宏变量 VARL7 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ ## BCFFQ0MEAN
+ MLOGIC(MIXTRAN): %LET（变量名为 I）
+ SYMBOLGEN:  宏变量 I 解析为 7
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 I 解析为 8
+ MLOGIC(MIXTRAN):  %DO %UNTIL() 条件为 TRUE；循环将不再迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 CNT_AMT）
+ SYMBOLGEN:  宏变量 I 解析为 8
+ SYMBOLGEN:  宏变量 VARS_AMT 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ MLOGIC(MIXTRAN):  %IF 条件 &vars_amt= 为 FALSE
+ MLOGIC(MIXTRAN): %LET（变量名为 WEEKEND）
+ SYMBOLGEN:  宏变量 WEEKEND 解析为 
+ MLOGIC(MIXTRAN): %LET（变量名为 SEQ）
+ SYMBOLGEN:  宏变量 SEQ 解析为 
+ SYMBOLGEN:  宏变量 WEEKEND 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &weekend ne  为 FALSE
+ MLOGIC(MIXTRAN): %LET（变量名为 PREDXB）
+ MPRINT(MIXTRAN):   ******************************************************************;
+ MPRINT(MIXTRAN):   data data (drop=wtflag) ;
+ SYMBOLGEN:  宏变量 DATA 解析为 datamrec
+ MPRINT(MIXTRAN):   set datamrec;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   if R=0 then YN=0;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   else if R>0 then YN=1;
+ MPRINT(MIXTRAN):   *** check that the replicate variable, if supplied, is an integer;
+ MPRINT(MIXTRAN):   *** If none supplied, then assign the value of 1 to the dummy weight variable;
+ MPRINT(MIXTRAN):   wtflag = '0';
+ MLOGIC(MIXTRAN): %LET（变量名为 WTCH）
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MLOGIC(MIXTRAN):  %IF 条件 &replicate_var ne dummywt 为 TRUE
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MPRINT(MIXTRAN):   If replicvar ne int(replicvar) then do ;
+ MPRINT(MIXTRAN):   put;
+ MPRINT(MIXTRAN):   put '**********************************************************';
+ MPRINT(MIXTRAN):   put "** ERROR **" ;
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MPRINT(MIXTRAN):   put "**  The replicate variable replicvar is not an integer.";
+ MPRINT(MIXTRAN):   put "**   Processing of the macro MIXTRAN will be stopped.";
+ MPRINT(MIXTRAN):   put '**********************************************************';
+ MPRINT(MIXTRAN):   put;
+ MPRINT(MIXTRAN):   wtflag= '1';
+ MPRINT(MIXTRAN):   call symput('wtch',wtflag);
+ MPRINT(MIXTRAN):   stop;
+ MPRINT(MIXTRAN):   end;
+ MPRINT(MIXTRAN):   ** of replicate_var ne int(replicate_var) ;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.DATAMREC. 读取了 4094 个观测
+ NOTE: 数据集 WORK.DATA 有 4094 个观测和 15 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1770.65k
+       OS 内存           22952.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        22  Switch Count  1
+       页错误数                       0
+       页回收数                     192
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1032
+       
+ 
+ SYMBOLGEN:  宏变量 WTCH 解析为 0
+ MLOGIC(MIXTRAN):  %IF 条件 &wtch = 1 为 FALSE
+ MPRINT(MIXTRAN):   proc sort data=data;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ SYMBOLGEN:  宏变量 REPEAT 解析为 repeat
+ MPRINT(MIXTRAN):   by subjectid repeat;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.DATA. 读取了 4094 个观测
+ NOTE: 数据集 WORK.DATA 有 4094 个观测和 15 个变量。
+ NOTE: “PROCEDURE SORT”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              2508.78k
+       OS 内存           24244.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        23  Switch Count  1
+       页错误数                       0
+       页回收数                     341
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1032
+       
+ 
+ MPRINT(MIXTRAN):   data data0;
+ MPRINT(MIXTRAN):   set data;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ SYMBOLGEN:  宏变量 REPEAT 解析为 repeat
+ MPRINT(MIXTRAN):   by subjectid repeat;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   if R=0 then do;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   R=.;
+ MPRINT(MIXTRAN):   end;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.DATA. 读取了 4094 个观测
+ NOTE: 数据集 WORK.DATA0 有 4094 个观测和 15 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1831.18k
+       OS 内存           23208.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        24  Switch Count  1
+       页错误数                       0
+       页回收数                     159
+       页交换数                        0
+       主动上下文切换数        8
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1032
+       
+ 
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype = AMOUNT 为 FALSE
+ MLOGIC(MIXTRAN): %LET（变量名为 TEMPDA）
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype = AMOUNT 为 FALSE
+ MPRINT(MIXTRAN):   run;
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype ne AMOUNT 为 TRUE
+ SYMBOLGEN:  宏变量 REPEAT 解析为 repeat
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MPRINT(MIXTRAN):   data _mxt_recalls (keep=NumberRecalls NumberRecallsGT0 repeat R replicvar);
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ SYMBOLGEN:  宏变量 REPEAT 解析为 repeat
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ SYMBOLGEN:  宏变量 SUBGROUP 解析为 
+ MPRINT(MIXTRAN):   set data0 (keep=subjectid repeat R replicvar );
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ SYMBOLGEN:  宏变量 REPEAT 解析为 repeat
+ MPRINT(MIXTRAN):   by subjectid repeat ;
+ MPRINT(MIXTRAN):   label NumberRecalls = "Number of Recalls" NumberRecallsGT0 = "Number of Recalls with response greater than 0 
+ (i.e. eaten)" ;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ MPRINT(MIXTRAN):   if first.subjectid then do;
+ MPRINT(MIXTRAN):   NumberRecalls = 0;
+ MPRINT(MIXTRAN):   NumberRecallsGT0 = 0;
+ MPRINT(MIXTRAN):   end;
+ MPRINT(MIXTRAN):   NumberRecalls+1 ;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   if R>0 then NumberRecallsGT0+1;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ MPRINT(MIXTRAN):   if last.subjectid then output;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.DATA0. 读取了 4094 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS 有 2100 个观测和 5 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1436.87k
+       OS 内存           23208.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        25  Switch Count  1
+       页错误数                       0
+       页回收数                     176
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           272
+       
+ 
+ MPRINT(MIXTRAN):   proc freq data=_mxt_recalls noprint;
+ MPRINT(MIXTRAN):   tables NumberRecalls*NumberRecallsGT0/ out=_mxt_Recalls_count(drop=percent) ;
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title3 "Number of Observed 24 Hour Recalls by Number of 24 Hour Recalls Greater Than 0";
+ MPRINT(MIXTRAN):   run;
+ NOTE: 从数据集 WORK._MXT_RECALLS. 读取了 2100 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS_COUNT 有 5 个观测和 3 个变量。
+ NOTE: “PROCEDURE FREQ”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1977.43k
+       OS 内存           23992.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        26  Switch Count  6
+       页错误数                       0
+       页回收数                     488
+       页交换数                        0
+       主动上下文切换数        33
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1320
+       
+ 
+ MPRINT(MIXTRAN):   proc freq data=_mxt_recalls noprint;
+ MPRINT(MIXTRAN):   tables NumberRecalls*NumberRecallsGT0/ out=_mxt_Recalls_percent(drop=count) ;
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MPRINT(MIXTRAN):   weight replicvar ;
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title3 "Weighted percents of Observed 24 Hour Recalls by Number of 24 Hour Recalls Greater Than 0";
+ MPRINT(MIXTRAN):   run;
+ NOTE: 从数据集 WORK._MXT_RECALLS. 读取了 2100 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS_PERCENT 有 5 个观测和 3 个变量。
+ NOTE: “PROCEDURE FREQ”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1956.71k
+       OS 内存           23992.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        27  Switch Count  6
+       页错误数                       0
+       页回收数                     376
+       页交换数                        0
+       主动上下文切换数        36
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           1320
+       
+ 
+ MPRINT(MIXTRAN):   proc sort data=_mxt_recalls_count ;
+ MPRINT(MIXTRAN):   by NumberRecalls NumberRecallsGT0 ;
+ NOTE: 从数据集 WORK._MXT_RECALLS_COUNT. 读取了 5 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS_COUNT 有 5 个观测和 3 个变量。
+ NOTE: “PROCEDURE SORT”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              935.18k
+       OS 内存           22952.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        28  Switch Count  1
+       页错误数                       0
+       页回收数                     115
+       页交换数                        0
+       主动上下文切换数        6
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   proc sort data=_mxt_recalls_percent ;
+ MPRINT(MIXTRAN):   by NumberRecalls NumberRecallsGT0 ;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK._MXT_RECALLS_PERCENT. 读取了 5 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS_PERCENT 有 5 个观测和 3 个变量。
+ NOTE: “PROCEDURE SORT”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.01 秒
+       内存              935.18k
+       OS 内存           22952.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        29  Switch Count  1
+       页错误数                       0
+       页回收数                     113
+       页交换数                        0
+       主动上下文切换数        6
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           272
+       
+ 
+ MPRINT(MIXTRAN):   data _mxt_recalls ;
+ MPRINT(MIXTRAN):   merge _mxt_recalls_count _mxt_recalls_percent;
+ MPRINT(MIXTRAN):   by NumberRecalls NumberRecallsGT0 ;
+ MPRINT(MIXTRAN):   ods select all ;
+ NOTE: 从数据集 WORK._MXT_RECALLS_COUNT. 读取了 5 个观测
+ NOTE: 从数据集 WORK._MXT_RECALLS_PERCENT. 读取了 5 个观测
+ NOTE: 数据集 WORK._MXT_RECALLS 有 5 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1247.75k
+       OS 内存           23212.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        30  Switch Count  2
+       页错误数                       0
+       页回收数                     168
+       页交换数                        0
+       主动上下文切换数        14
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   proc print data=_mxt_recalls noobs label ;
+ MPRINT(MIXTRAN):   ID NumberRecalls ;
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title3 "Subjects Grouped Into Number of Observed 24-Hour Recalls by The Number of Recalls With Positive Value";
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title4 "Percents Are Weighted If A Weight Is In Use. Counts Are Not Weighted" ;
+ MPRINT(MIXTRAN):   run;
+ NOTE: 从数据集 WORK._MXT_RECALLS. 读取了 5 个观测
+ NOTE: “PROCEDURE PRINT”所用时间（总处理时间）:
+       实际时间          0.01 秒
+       用户 CPU 时间     0.02 秒
+       系统 CPU 时间     0.00 秒
+       内存              664.81k
+       OS 内存           22692.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        31  Switch Count  2
+       页错误数                       0
+       页回收数                     70
+       页交换数                        0
+       主动上下文切换数        15
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           0
+       
+ 
+ MPRINT(MIXTRAN):   ** There should be at least one subject with two or more positive recalls to continue. ** ** If between 2 and 10 
+ warn the user that estimates might be unstable ** ;
+ MPRINT(MIXTRAN):   proc sql noprint;
+ MPRINT(MIXTRAN):   select sum(count) into :Positive from _mxt_recalls where NumberRecalls>1 and NumberRecallsGT0>1 ;
+ MPRINT(MIXTRAN):   quit;
+ NOTE: “PROCEDURE SQL”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              5581.03k
+       OS 内存           27816.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        32  Switch Count  0
+       页错误数                       0
+       页回收数                     82
+       页交换数                        0
+       主动上下文切换数        0
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           8
+       
+ 
+ MPRINT(MIXTRAN):   run;
+ SYMBOLGEN:  宏变量 POSITIVE 解析为       86
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&positive) <11 为 FALSE
+ MLOGIC(MIXTRAN): %PUT The number of subjects with two or more positive responses is &positive
+ SYMBOLGEN:  宏变量 POSITIVE 解析为       86
+ The number of subjects with two or more positive responses is       86
+ MPRINT(MIXTRAN):   Proc Datasets nolist ;
+ MPRINT(MIXTRAN):   delete _mxt_recalls _mxt_recalls_count _mxt_recalls_percent ;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 正在删除 WORK._MXT_RECALLS (memtype=DATA)。
+ NOTE: 正在删除 WORK._MXT_RECALLS_COUNT (memtype=DATA)。
+ NOTE: 正在删除 WORK._MXT_RECALLS_PERCENT (memtype=DATA)。
+ SYMBOLGEN:  宏变量 PRINT_OFF 解析为 ods exclude all ;
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MPRINT(MIXTRAN):   ods exclude all ;
+ MPRINT(MIXTRAN):   ;
+ MPRINT(MIXTRAN):   ***************************************************************;
+ MPRINT(MIXTRAN):   ** Find the smallest non-zero value of the response var ** over all subjects (min_amt). ** also find ** the 
+ model type, the name of the replicate (weight) variable ** and if applicable the number of var groups. ** These will be passed to 
+ the DISTRIB macro;
+ MPRINT(MIXTRAN):   ****************************************************************;
+ 
+ NOTE: “PROCEDURE DATASETS”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              507.50k
+       OS 内存           22692.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        33  Switch Count  4
+       页错误数                       0
+       页回收数                     106
+       页交换数                        0
+       主动上下文切换数        27
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           8
+       
+ 
+ MPRINT(MIXTRAN):   proc univariate data = data0 noprint;
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ MPRINT(MIXTRAN):   var R ;
+ MPRINT(MIXTRAN):   output out=misc_info min=min_amt ;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 数据集 WORK.MISC_INFO 有 1 个观测和 1 个变量。
+ NOTE: “PROCEDURE UNIVARIATE”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1317.84k
+       OS 内存           23208.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        34  Switch Count  1
+       页错误数                       0
+       页回收数                     179
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   data misc_info ;
+ MPRINT(MIXTRAN):   set misc_info(keep=min_amt);
+ MPRINT(MIXTRAN):   FreqName=symget('replicate_var');
+ SYMBOLGEN:  宏变量 NUMVARGROUPS 解析为 0
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MPRINT(MIXTRAN):   numvargrps=0;
+ SYMBOLGEN:  宏变量 WEEKEND 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &weekend eq  为 TRUE
+ MPRINT(MIXTRAN):   weekendflag=0;
+ 
+ NOTE: 从数据集 WORK.MISC_INFO. 读取了 1 个观测
+ NOTE: 数据集 WORK.MISC_INFO 有 1 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              960.28k
+       OS 内存           22952.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        35  Switch Count  1
+       页错误数                       0
+       页回收数                     131
+       页交换数                        0
+       主动上下文切换数        6
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           272
+       
+ 
+ MPRINT(MIXTRAN):   proc sort data=data out=_persons nodupkey;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ MPRINT(MIXTRAN):   by subjectid;
+ 
+ NOTE: 从数据集 WORK.DATA. 读取了 4094 个观测
+ NOTE: 1994 observations with duplicate key values were deleted.
+ NOTE: 数据集 WORK._PERSONS 有 2100 个观测和 15 个变量。
+ NOTE: “PROCEDURE SORT”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              2782.90k
+       OS 内存           24504.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        36  Switch Count  1
+       页错误数                       0
+       页回收数                     304
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           528
+       
+ 
+ MPRINT(MIXTRAN):   data _persons ;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ SYMBOLGEN:  宏变量 SUBGROUP 解析为 
+ MPRINT(MIXTRAN):   set _persons (keep=subjectid replicvar R ) ;
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ MPRINT(MIXTRAN):   by subjectid ;
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ MPRINT(MIXTRAN):   indwts=replicvar;
+ MPRINT(MIXTRAN):   ****************** end of general set up **********************************;
+ MPRINT(MIXTRAN):   ****************************************************************************;
+ MPRINT(MIXTRAN):   ;
+ MPRINT(MIXTRAN):   **RERUNS ;
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &vcontrol ne  为 FALSE
+ MPRINT(MIXTRAN):   *******************************************************************************;
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 (&vcontrol = )  or (&vcontrol  ne  and &modeltype ne CORR) 为 TRUE
+ SYMBOLGEN:  宏变量 MODELTYPE 解析为 CORR
+ MLOGIC(MIXTRAN):  %IF 条件 &modeltype ne AMOUNT 为 TRUE
+ SYMBOLGEN:  宏变量 VCONTROL 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &vcontrol =  为 TRUE
+ MPRINT(MIXTRAN):   ods output ParameterEstimates=parmsg1(rename=Parameter=Name) modelfit=modelfitb;
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title3 "Starting Estimates for Probability Model";
+ NOTE: 从数据集 WORK._PERSONS. 读取了 2100 个观测
+ NOTE: 数据集 WORK._PERSONS 有 2100 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1041.53k
+       OS 内存           22952.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        37  Switch Count  3
+       页错误数                       0
+       页回收数                     127
+       页交换数                        0
+       主动上下文切换数        20
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   proc genmod data=data descending namelen=30;
+ SYMBOLGEN:  宏变量 VARS_PROB 解析为 RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN
+ MPRINT(MIXTRAN):   model yn=RACE1 RACE3 DMDEDUC1 DMDEDUC3 RIDAGEYR FFQEQZERO BCFFQ0MEAN/dist=binomial;
+ SYMBOLGEN:  宏变量 FREQING 解析为 FREQ replicvar
+ MPRINT(MIXTRAN):   FREQ replicvar;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: PROC GENMOD is modeling the probability that YN='1'.
+ NOTE: The Pearson chi-square and deviance are not computed since the AGGREGATE option is not specified.
+ NOTE: Algorithm converged.
+ NOTE: The scale parameter was held fixed.
+ NOTE: 数据集 WORK.MODELFITB 有 5 个观测和 4 个变量。
+ NOTE: 数据集 WORK.PARMSG1 有 9 个观测和 8 个变量。
+ NOTE: “PROCEDURE GENMOD”所用时间（总处理时间）:
+       实际时间          0.03 秒
+       用户 CPU 时间     0.02 秒
+       系统 CPU 时间     0.01 秒
+       内存              4330.59k
+       OS 内存           25776.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        38  Switch Count  2
+       页错误数                       0
+       页回收数                     1668
+       页交换数                        0
+       主动上下文切换数        19
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           536
+       
+ 
+ MPRINT(MIXTRAN):   data random1;
+ MPRINT(MIXTRAN):   Format Parameter $30.;
+ MPRINT(MIXTRAN):   Parameter= Compress('P' ||'_VAR_U1');
+ MPRINT(MIXTRAN):   call symput('vu1',parameter);
+ MPRINT(MIXTRAN):   Name='Var(Rndm Effect)';
+ SYMBOLGEN:  宏变量 VAR_U1START 解析为 20
+ MPRINT(MIXTRAN):   Estimate=20;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 数据集 WORK.RANDOM1 有 1 个观测和 3 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              668.12k
+       OS 内存           23716.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        39  Switch Count  1
+       页错误数                       0
+       页回收数                     92
+       页交换数                        0
+       主动上下文切换数        9
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MLOGIC(MIXTRAN): %PUT VU1 = &vu1
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ VU1 = P_VAR_U1
+ MPRINT(MIXTRAN):   data newnames1;
+ MPRINT(MIXTRAN):   format var_name $70. Parameter $30.;
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 &cnt_prob > 0 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ MLOGIC(MIXTRAN): %DO %UNTIL(&j=(&cnt_prob+1)) 循环正准备开始。
+ SYMBOLGEN:  宏变量 J 解析为 1
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 VARB1 解析为 RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 2
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 VARB2 解析为 RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 3
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 VARB3 解析为 DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 4
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 VARB4 解析为 DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 5
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 VARB5 解析为 RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 6
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 VARB6 解析为 FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ SYMBOLGEN:  宏变量 J 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 %eval(&j) lt 9 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 ZNUM）
+ MLOGIC(MIXTRAN): %LET（变量名为 CRD1）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 ZNUM 解析为 0
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 VARB7 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 J 解析为 8
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL() 条件为 TRUE；循环将不再迭代。
+ MPRINT(MIXTRAN):   set parmsg1;
+ MPRINT(MIXTRAN):   if Name='Scale' then delete;
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 &cnt_prob>0 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 INT）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 INT 解析为 P01_INTERCEPT
+ MPRINT(MIXTRAN):   if Name='Intercept' then Parameter="P01_INTERCEPT";
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ MLOGIC(MIXTRAN): %DO %UNTIL(&j=(&cnt_prob+1)) 循环正准备开始。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 VARB1 解析为 RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 VARB1 解析为 RACE1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 RACE1
+ SYMBOLGEN:  宏变量 LNGTH 解析为 5
+ RACE1 5
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 UP 解析为 RACE1
+ MPRINT(MIXTRAN):   if UPCASE(Name)="RACE1" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P02_RACE1
+ MPRINT(MIXTRAN):   Parameter="P02_RACE1";
+ SYMBOLGEN:  宏变量 UP 解析为 RACE1
+ MPRINT(MIXTRAN):   var_name="RACE1";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 1
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 VARB2 解析为 RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 VARB2 解析为 RACE3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 RACE3
+ SYMBOLGEN:  宏变量 LNGTH 解析为 5
+ RACE3 5
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 UP 解析为 RACE3
+ MPRINT(MIXTRAN):   if UPCASE(Name)="RACE3" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P03_RACE3
+ MPRINT(MIXTRAN):   Parameter="P03_RACE3";
+ SYMBOLGEN:  宏变量 UP 解析为 RACE3
+ MPRINT(MIXTRAN):   var_name="RACE3";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 2
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 VARB3 解析为 DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 VARB3 解析为 DMDEDUC1
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC1
+ SYMBOLGEN:  宏变量 LNGTH 解析为 8
+ DMDEDUC1 8
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC1
+ MPRINT(MIXTRAN):   if UPCASE(Name)="DMDEDUC1" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P04_DMDEDUC1
+ MPRINT(MIXTRAN):   Parameter="P04_DMDEDUC1";
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC1
+ MPRINT(MIXTRAN):   var_name="DMDEDUC1";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 3
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 VARB4 解析为 DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 VARB4 解析为 DMDEDUC3
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC3
+ SYMBOLGEN:  宏变量 LNGTH 解析为 8
+ DMDEDUC3 8
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC3
+ MPRINT(MIXTRAN):   if UPCASE(Name)="DMDEDUC3" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P05_DMDEDUC3
+ MPRINT(MIXTRAN):   Parameter="P05_DMDEDUC3";
+ SYMBOLGEN:  宏变量 UP 解析为 DMDEDUC3
+ MPRINT(MIXTRAN):   var_name="DMDEDUC3";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 4
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 VARB5 解析为 RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 VARB5 解析为 RIDAGEYR
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 RIDAGEYR
+ SYMBOLGEN:  宏变量 LNGTH 解析为 8
+ RIDAGEYR 8
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 UP 解析为 RIDAGEYR
+ MPRINT(MIXTRAN):   if UPCASE(Name)="RIDAGEYR" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P06_RIDAGEYR
+ MPRINT(MIXTRAN):   Parameter="P06_RIDAGEYR";
+ SYMBOLGEN:  宏变量 UP 解析为 RIDAGEYR
+ MPRINT(MIXTRAN):   var_name="RIDAGEYR";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 5
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 VARB6 解析为 FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 VARB6 解析为 FFQEQZERO
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 FFQEQZERO
+ SYMBOLGEN:  宏变量 LNGTH 解析为 9
+ FFQEQZERO 9
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 UP 解析为 FFQEQZERO
+ MPRINT(MIXTRAN):   if UPCASE(Name)="FFQEQZERO" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P07_FFQEQZERO
+ MPRINT(MIXTRAN):   Parameter="P07_FFQEQZERO";
+ SYMBOLGEN:  宏变量 UP 解析为 FFQEQZERO
+ MPRINT(MIXTRAN):   var_name="FFQEQZERO";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 6
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&j=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 UP）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 VARB7 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %LET（变量名为 LNGTH）
+ SYMBOLGEN: && 解析为 &。
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 VARB7 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MLOGIC(MIXTRAN): %PUT &up &lngth
+ SYMBOLGEN:  宏变量 UP 解析为 BCFFQ0MEAN
+ SYMBOLGEN:  宏变量 LNGTH 解析为 10
+ BCFFQ0MEAN 10
+ MLOGIC(MIXTRAN): %LET（变量名为 VARNAME）
+ SYMBOLGEN:  宏变量 CRD1 解析为 P01_INTERCEPT P02_RACE1 P03_RACE3 P04_DMDEDUC1 P05_DMDEDUC3 P06_RIDAGEYR P07_FFQEQZERO 
+            P08_BCFFQ0MEAN
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 UP 解析为 BCFFQ0MEAN
+ MPRINT(MIXTRAN):   if UPCASE(Name)="BCFFQ0MEAN" then do;
+ SYMBOLGEN:  宏变量 VARNAME 解析为 P08_BCFFQ0MEAN
+ MPRINT(MIXTRAN):   Parameter="P08_BCFFQ0MEAN";
+ SYMBOLGEN:  宏变量 UP 解析为 BCFFQ0MEAN
+ MPRINT(MIXTRAN):   var_name="BCFFQ0MEAN";
+ MPRINT(MIXTRAN):   end;
+ MLOGIC(MIXTRAN): %LET（变量名为 J）
+ SYMBOLGEN:  宏变量 J 解析为 7
+ SYMBOLGEN:  宏变量 J 解析为 8
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL() 条件为 TRUE；循环将不再迭代。
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 &cnt_prob=0 为 FALSE
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.PARMSG1. 读取了 9 个观测
+ NOTE: 数据集 WORK.NEWNAMES1 有 9 个观测和 10 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.01 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1083.68k
+       OS 内存           23976.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        40  Switch Count  1
+       页错误数                       0
+       页回收数                     138
+       页交换数                        0
+       主动上下文切换数        6
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           304
+       
+ 
+ MPRINT(MIXTRAN):   data start1;
+ MPRINT(MIXTRAN):   format Name $30. Parameter $30.;
+ MPRINT(MIXTRAN):   set newnames1 random1;
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ MPRINT(MIXTRAN):   if Parameter not in ('P01_INTERCEPT',"P_VAR_U1                      ") then 
+ list=trim(Parameter)||'*'||trim(Var_Name);
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ MPRINT(MIXTRAN):   else if Parameter in ('P01_INTERCEPT',"P_VAR_U1                      ") then list=trim(Parameter);
+ MPRINT(MIXTRAN):   keep Parameter Name Estimate list;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.NEWNAMES1. 读取了 9 个观测
+ NOTE: 从数据集 WORK.RANDOM1. 读取了 1 个观测
+ NOTE: 数据集 WORK.START1 有 10 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              1315.21k
+       OS 内存           24236.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        41  Switch Count  1
+       页错误数                       0
+       页回收数                     170
+       页交换数                        0
+       主动上下文切换数        9
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   data trans1;
+ MPRINT(MIXTRAN):   set start1;
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ MPRINT(MIXTRAN):   if Parameter in ("P_VAR_U1                      ") then delete;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.START1. 读取了 10 个观测
+ NOTE: 数据集 WORK.TRANS1 有 9 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              945.62k
+       OS 内存           23976.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        42  Switch Count  1
+       页错误数                       0
+       页回收数                     122
+       页交换数                        0
+       主动上下文切换数        6
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           264
+       
+ 
+ MPRINT(MIXTRAN):   proc transpose data=trans1 out=out1;
+ MPRINT(MIXTRAN):   var list;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.TRANS1. 读取了 9 个观测
+ NOTE: 数据集 WORK.OUT1 有 1 个观测和 10 个变量。
+ NOTE: “PROCEDURE TRANSPOSE”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              2721.37k
+       OS 内存           26028.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        43  Switch Count  2
+       页错误数                       0
+       页回收数                     226
+       页交换数                        0
+       主动上下文切换数        13
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           528
+       
+ 
+ MPRINT(MIXTRAN):   data eqn1 ;
+ MPRINT(MIXTRAN):   format eta1 eta_1 $2000.;
+ MPRINT(MIXTRAN):   set out1;
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 &cnt_prob>0 为 TRUE
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 1
+ MPRINT(MIXTRAN):   eta1=trim(col1);
+ SYMBOLGEN:  宏变量 K 解析为 1
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 (&k ne (&cnt_prob+1)) 为 TRUE
+ MLOGIC(MIXTRAN): %DO %UNTIL(&k=(&cnt_prob+1)) 循环正准备开始。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 1
+ SYMBOLGEN:  宏变量 K 解析为 2
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col2);
+ SYMBOLGEN:  宏变量 K 解析为 2
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 2
+ SYMBOLGEN:  宏变量 K 解析为 3
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col3);
+ SYMBOLGEN:  宏变量 K 解析为 3
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 3
+ SYMBOLGEN:  宏变量 K 解析为 4
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col4);
+ SYMBOLGEN:  宏变量 K 解析为 4
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 4
+ SYMBOLGEN:  宏变量 K 解析为 5
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col5);
+ SYMBOLGEN:  宏变量 K 解析为 5
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 5
+ SYMBOLGEN:  宏变量 K 解析为 6
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col6);
+ SYMBOLGEN:  宏变量 K 解析为 6
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 6
+ SYMBOLGEN:  宏变量 K 解析为 7
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col7);
+ SYMBOLGEN:  宏变量 K 解析为 7
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL(&k=(&cnt_prob+1)) 条件为 FALSE；循环将再次迭代。
+ MLOGIC(MIXTRAN): %LET（变量名为 K）
+ SYMBOLGEN:  宏变量 K 解析为 7
+ SYMBOLGEN:  宏变量 K 解析为 8
+ MPRINT(MIXTRAN):   eta1=trim(eta1)||'+'||trim(col8);
+ SYMBOLGEN:  宏变量 K 解析为 8
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %DO %UNTIL() 条件为 TRUE；循环将不再迭代。
+ MPRINT(MIXTRAN):   call symput('nonu1',eta1);
+ MPRINT(MIXTRAN):   eta_1=trim(eta1)||' + u1';
+ SYMBOLGEN:  宏变量 SEQ 解析为 
+ MLOGIC(MIXTRAN):  %IF 条件 &seq ne  为 FALSE
+ MPRINT(MIXTRAN):   call symput('nonu1seq1',eta1);
+ SYMBOLGEN:  宏变量 CNT_PROB 解析为 7
+ MLOGIC(MIXTRAN):  %IF 条件 &cnt_prob=0 为 FALSE
+ MPRINT(MIXTRAN):   call symput('eta1',eta_1);
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.OUT1. 读取了 1 个观测
+ NOTE: 数据集 WORK.EQN1 有 1 个观测和 12 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.01 秒
+       系统 CPU 时间     0.00 秒
+       内存              1024.12k
+       OS 内存           23976.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        44  Switch Count  1
+       页错误数                       0
+       页回收数                     123
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           272
+       
+ 
+ MLOGIC(MIXTRAN): %PUT "response is            " &response
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ "response is            " R
+ MLOGIC(MIXTRAN): %PUT "eta1 is                " &eta1
+ SYMBOLGEN:  宏变量 ETA1 解析为 
+            P01_INTERCEPT+P02_RACE1*RACE1+P03_RACE3*RACE3+P04_DMDEDUC1*DMDEDUC1+P05_DMDEDUC3*DMDEDUC3+P06_RIDAGEYR*RIDAGEYR+P07_FFQEQ
+            ZERO*FFQEQZERO+P08_BCFFQ0MEAN*BCFFQ0MEAN + u1                                                                            
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                            
+ "eta1 is                " 
+ P01_INTERCEPT+P02_RACE1*RACE1+P03_RACE3*RACE3+P04_DMDEDUC1*DMDEDUC1+P05_DMDEDUC3*DMDEDUC3+P06_RIDAGEYR*RIDAGEYR+P07_FFQEQZERO*FFQEQZ
+ ERO+P08_BCFFQ0MEAN*BCFFQ0MEAN + u1
+ MPRINT(MIXTRAN):   data start1vargrp;
+ MPRINT(MIXTRAN):   length parameter $30.;
+ MPRINT(MIXTRAN):   set start1;
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ MPRINT(MIXTRAN):   if parameter = "P_VAR_U1                      " then do;
+ MPRINT(MIXTRAN):   parameter = 'P_LOGSDU1';
+ MPRINT(MIXTRAN):   name = 'Reparam Var(u1)';
+ MPRINT(MIXTRAN):   estimate = log(sqrt(estimate));
+ MPRINT(MIXTRAN):   list = 'P_LOGSDU1';
+ MPRINT(MIXTRAN):   output;
+ MPRINT(MIXTRAN):   end;
+ MPRINT(MIXTRAN):   else output;
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 从数据集 WORK.START1. 读取了 10 个观测
+ NOTE: 数据集 WORK.START1VARGRP 有 10 个观测和 4 个变量。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.01 秒
+       内存              961.71k
+       OS 内存           23976.00k
+       时间戳           2022-11-12 上午03:41:39
+       Step Count                        45  Switch Count  1
+       页错误数                       0
+       页回收数                     135
+       页交换数                        0
+       主动上下文切换数        7
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           272
+       
+ 
+ MPRINT(MIXTRAN):   ************************************************************;
+ MPRINT(MIXTRAN):   ** Run nlmixed for probability model;
+ MPRINT(MIXTRAN):   ***********************************************************;
+ SYMBOLGEN:  宏变量 PRINT_ON 解析为 ods select all ;
+ SYMBOLGEN:  上一值中宏应引用的某些字符在显示时未加引用。
+ MPRINT(MIXTRAN):   ods select all ;
+ MPRINT(MIXTRAN):   ;
+ MPRINT(MIXTRAN):   ** ods select all;
+ MPRINT(MIXTRAN):   ods output ParameterEstimates=parmsf1 AdditionalEstimates=adprmsf1 FitStatistics=fitf1 ConvergenceStatus=convf1;
+ SYMBOLGEN:  宏变量 TITLES 解析为 2
+ MPRINT(MIXTRAN):   title3 'Probability Model';
+ SYMBOLGEN:  宏变量 NLOPTIONS 解析为 qmax=61
+ MPRINT(MIXTRAN):   proc nlmixed data=data qmax=61;
+ SYMBOLGEN:  宏变量 START_VAL1 解析为 start1vargrp
+ MPRINT(MIXTRAN):   parms /data=start1vargrp;
+ SYMBOLGEN:  宏变量 REPLICATE 解析为 replicate replicvar
+ MPRINT(MIXTRAN):   replicate replicvar ;
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ MPRINT(MIXTRAN):   P_VAR_U1 = EXP(2*P_LOGSDU1);
+ SYMBOLGEN:  宏变量 ETA1 解析为 
+            P01_INTERCEPT+P02_RACE1*RACE1+P03_RACE3*RACE3+P04_DMDEDUC1*DMDEDUC1+P05_DMDEDUC3*DMDEDUC3+P06_RIDAGEYR*RIDAGEYR+P07_FFQEQ
+            ZERO*FFQEQZERO+P08_BCFFQ0MEAN*BCFFQ0MEAN + u1                                                                            
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                                                                                     
+                                                                            
+ MPRINT(MIXTRAN):   
+ x1b1u1=P01_INTERCEPT+P02_RACE1*RACE1+P03_RACE3*RACE3+P04_DMDEDUC1*DMDEDUC1+P05_DMDEDUC3*DMDEDUC3+P06_RIDAGEYR*RIDAGEYR+P07_FFQEQZERO
+ *FFQEQZERO+P08_BCFFQ0MEAN*BCFFQ0MEAN + u1 ;
+ MPRINT(MIXTRAN):   p=exp(x1b1u1)/(1+exp(x1b1u1));
+ MPRINT(MIXTRAN):   x1b1=x1b1u1-u1;
+ MPRINT(MIXTRAN):   model YN ~ binomial(1,p);
+ MPRINT(MIXTRAN):   if YN = . then _ll = .;
+ MPRINT(MIXTRAN):   else if _est0 = . then _ll = .;
+ MPRINT(MIXTRAN):   else if _est1 = . then _ll = .;
+ MPRINT(MIXTRAN):   else do;
+ MPRINT(MIXTRAN):   _r = YN;
+ MPRINT(MIXTRAN):   _m = _est0-_r;
+ MPRINT(MIXTRAN):   _p= _est1;
+ MPRINT(MIXTRAN):   if (_r<0) or (_m<0) then _ll = -1E20;
+ MPRINT(MIXTRAN):   else if ((_r>0) and (_p<=1.110223E-16)) then _ll = -1E20;
+ MPRINT(MIXTRAN):   else if ((_m>0) and (_p>=1)) then _ll = -1E20;
+ MPRINT(MIXTRAN):   else do;
+ MPRINT(MIXTRAN):   _lc = lgamma(1+_r+_m) - lgamma(1+_r) - lgamma(1+_m);
+ MPRINT(MIXTRAN):   _ll = _lc;
+ MPRINT(MIXTRAN):   if (_r > 0) then _ll = _ll + _r*log(_p);
+ MPRINT(MIXTRAN):   if (_m > 0) then _ll = _ll + _m*log(1-_p);
+ MPRINT(MIXTRAN):   end;
+ MPRINT(MIXTRAN):   end;
+ SYMBOLGEN:  宏变量 VU1 解析为 P_VAR_U1                      
+ SYMBOLGEN:  宏变量 SUBJECT 解析为 subjectid
+ MPRINT(MIXTRAN):   random u1 ~ normal(0,P_VAR_U1 ) subject=subjectid out=predu1u;
+ MPRINT(MIXTRAN):   estimate "P_VAR_U1" EXP(2*P_LOGSDU1);
+ MPRINT(MIXTRAN):   predict p out=predpu;
+ MPRINT(MIXTRAN):   predict x1b1 out=predx1b1u;
+ MPRINT(MIXTRAN):   run;
+ 
+ ERROR: 无效的 ODS 名。
+ NOTE: 由于出错，SAS 系统停止处理该步。
+ WARNING: 未创建输出“ConvergenceStatus”。请确保输出对象名称、 标签或路径拼写正确。
+          还需确保使用了相应的过程选项 来生成请求的输出对象。如，确保没有使用 NOPRINT 选项。
+ WARNING: 未创建输出“FitStatistics”。请确保输出对象名称、 标签或路径拼写正确。
+          还需确保使用了相应的过程选项 来生成请求的输出对象。如，确保没有使用 NOPRINT 选项。
+ WARNING: 未创建输出“AdditionalEstimates”。请确保输出对象名称、 标签或路径拼写正确。
+          还需确保使用了相应的过程选项 来生成请求的输出对象。如，确保没有使用 NOPRINT 选项。
+ WARNING: 未创建输出“ParameterEstimates”。请确保输出对象名称、 标签或路径拼写正确。
+          还需确保使用了相应的过程选项 来生成请求的输出对象。如，确保没有使用 NOPRINT 选项。
+ WARNING: 数据集 WORK.PREDU1U 可能不完整。该步停止时，共有 0 个观测和 0 个变量。
+ WARNING: 数据集 WORK.PREDPU 可能不完整。该步停止时，共有 0 个观测和 0 个变量。
+ WARNING: 数据集 WORK.PREDX1B1U 可能不完整。该步停止时，共有 0 个观测和 0 个变量。
+ NOTE: “PROCEDURE NLMIXED”所用时间（总处理时间）:
+       实际时间          1.20 秒
+       用户 CPU 时间     1.21 秒
+       系统 CPU 时间     0.00 秒
+       内存              10893.18k
+       OS 内存           33908.00k
+       时间戳           2022-11-12 上午03:41:40
+       Step Count                        46  Switch Count  3
+       页错误数                       0
+       页回收数                     3867
+       页交换数                        0
+       主动上下文切换数        29
+       被动上下文切换数      3
+       块输入操作数            0
+       块输出操作数           504
+       
+ 
+ MPRINT(MIXTRAN):   data _null_;
+ MPRINT(MIXTRAN):   set convf1;
+ ERROR: 文件“WORK.CONVF1.DATA”不存在。
+ MPRINT(MIXTRAN):   call symput('convbi',Reason);
+ MPRINT(MIXTRAN):   run;
+ 
+ NOTE: 数值已转换为字符值，位置:（行:列）。
+       3338:18   
+ NOTE: 由于出错，SAS 系统停止处理该步。
+ NOTE: “DATA 语句”所用时间（总处理时间）:
+       实际时间          0.00 秒
+       用户 CPU 时间     0.00 秒
+       系统 CPU 时间     0.00 秒
+       内存              477.43k
+       OS 内存           24480.00k
+       时间戳           2022-11-12 上午03:41:40
+       Step Count                        47  Switch Count  0
+       页错误数                       0
+       页回收数                     28
+       页交换数                        0
+       主动上下文切换数        0
+       被动上下文切换数      0
+       块输入操作数            0
+       块输出操作数           0
+       
+ 
+ 
+ MPRINT(MIXTRAN):   Data _null_ ;
+ MLOGIC(MIXTRAN): %LET（变量名为 CCSBI）
+ WARNING: 没有解析符号引用 CONVBI。
+ SYMBOLGEN:  宏变量 CCSBI 解析为 0
+ MLOGIC(MIXTRAN):  %IF 条件 &ccsbi eq 0 为 TRUE
+ MLOGIC(MIXTRAN): %PUT ****************************************************
+ ****************************************************
+ MLOGIC(MIXTRAN): %PUT ##! Convergence Problem from PROC NLMIXED
+ ##! Convergence Problem from PROC NLMIXED
+ MLOGIC(MIXTRAN): %PUT ##! Macro MIXTRAN Stopped Due to Convergence Error in Probability Model
+ ##! Macro MIXTRAN Stopped Due to Convergence Error in Probability Model
+ MLOGIC(MIXTRAN): %PUT ##! Response Variable is &response
+ SYMBOLGEN:  宏变量 RESPONSE 解析为 R
+ ##! Response Variable is R
+ MLOGIC(MIXTRAN): %PUT ##! data is &data
+ SYMBOLGEN:  宏变量 DATA 解析为 datamrec
+ ##! data is datamrec
+ MLOGIC(MIXTRAN): %PUT ##! weight variable is &replicate_var
+ SYMBOLGEN:  宏变量 REPLICATE_VAR 解析为 replicvar
+ ##! weight variable is replicvar
+ MLOGIC(MIXTRAN): %PUT ** ERROR** MSG: &convbi
+ WARNING: 没有解析符号引用 CONVBI。
+ ** ERROR** MSG: &convbi
+ MLOGIC(MIXTRAN): %PUT ****************************************************
+ ****************************************************
+ MLOGIC(MIXTRAN): %LET（变量名为 CONVFLAG）
+ MPRINT(MIXTRAN):   ** IMS SPECIFIC: set flags to note which strata has failed. ** these will be used in selecting data for Distrib 
+ in the calling program;
+ MLOGIC(MIXTRAN): %LET（变量名为 FAIL_COUNT）
+ WARNING: 没有解析符号引用 FAIL_COUNT。
+ WARNING: 没有解析符号引用 FAIL_COUNT。
+ ERROR: 在需要数值操作数的 %EVAL 函数或 %IF 条件中发现字符操作数。条件是: &fail_count+1 
+ ERROR: 宏 MIXTRAN 将终止执行。
+ MLOGIC(MIXTRAN): 准备结束执行。
+ 3339       
+ 3340       OPTIONS NONOTES NOSTIMER NOSOURCE NOSYNTAXCHECK;
+ SYMBOLGEN:  宏变量 GRAPHTERM 解析为 GOPTIONS NOACCESSIBLE;
+ 3350       
